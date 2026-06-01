@@ -1,0 +1,218 @@
+# Export spectra and only a few peak-wavelength field snapshots.
+#
+# Use workflow:
+# 1. Open rect_sin_unit_cell.fsp.
+# 2. Run the FDTD simulation manually.
+# 3. Run this script in the same FDTD session.
+
+if (havedata("T")==false) {
+    ?"ERROR: monitor data named T was not found.";
+    ?"Open rect_sin_unit_cell.fsp, run the simulation, then run this export script in the same FDTD session.";
+    break;
+}
+if (havedata("R")==false) {
+    ?"ERROR: monitor data named R was not found.";
+    break;
+}
+if (havedata("field_xy_transmission")==false) {
+    ?"ERROR: monitor data named field_xy_transmission was not found.";
+    break;
+}
+if (havedata("nearfield_3d")==false) {
+    ?"ERROR: monitor data named nearfield_3d was not found.";
+    break;
+}
+
+############################
+# Metadata
+############################
+nm = 1e-9;
+period = 300*nm;
+pillar_height = 800*nm;
+rect_lx = 120*nm;
+rect_ly = 200*nm;
+theta_deg = 0;
+pol_angle_deg = 0;
+shape_type = "rectangle";
+material_pillar = "Si3N4 (Silicon Nitride) - Luke";
+material_substrate = "SiO2 (Glass) - Palik";
+boundary_x = "Periodic";
+boundary_y = "Periodic";
+boundary_z = "PML";
+
+############################
+# Spectra
+############################
+T_raw = transmission("T");
+R_raw = transmission("R");
+T_spectrum = -T_raw;
+R_spectrum = 1 + R_raw;
+
+E_T = getresult("field_xy_transmission","E");
+E_R = getresult("R","E");
+E_near = getresult("nearfield_3d","E");
+H_near = getresult("nearfield_3d","H");
+
+wavelength = c/E_T.f;
+
+############################
+# Phase at monitor center
+############################
+pol = pol_angle_deg*pi/180;
+
+ixT = find(E_T.x,0);
+iyT = find(E_T.y,0);
+ExT = pinch(E_T.Ex);
+EyT = pinch(E_T.Ey);
+EzT = pinch(E_T.Ez);
+Epol_T = cos(pol)*pinch(ExT,1,ixT) + sin(pol)*pinch(EyT,1,ixT);
+Epol_T = pinch(Epol_T,1,iyT);
+phase_T = angle(Epol_T);
+
+ixR = find(E_R.x,0);
+iyR = find(E_R.y,0);
+ExR = pinch(E_R.Ex);
+EyR = pinch(E_R.Ey);
+EzR = pinch(E_R.Ez);
+Epol_R = cos(pol)*pinch(ExR,1,ixR) + sin(pol)*pinch(EyR,1,ixR);
+Epol_R = pinch(Epol_R,1,iyR);
+phase_R = angle(Epol_R);
+
+############################
+# Pick peak wavelengths
+############################
+# Pick the strongest T peaks with a small exclusion window so adjacent
+# wavelength points are not repeatedly selected from the same broad peak.
+peak_count = 3;
+peak_exclusion_points = 2;
+nf = length(wavelength);
+
+T_work = T_spectrum;
+peak_indices = matrix(peak_count);
+peak_wavelength = matrix(peak_count);
+peak_T = matrix(peak_count);
+peak_R = matrix(peak_count);
+
+for (p=1:peak_count) {
+    imax = find(T_work,max(T_work));
+    imax = imax(1);
+    peak_indices(p) = imax;
+    peak_wavelength(p) = wavelength(imax);
+    peak_T(p) = T_spectrum(imax);
+    peak_R(p) = R_spectrum(imax);
+
+    i1 = imax - peak_exclusion_points;
+    i2 = imax + peak_exclusion_points;
+    if (i1 < 1) {
+        i1 = 1;
+    }
+    if (i2 > nf) {
+        i2 = nf;
+    }
+    for (ii=i1:i2) {
+        T_work(ii) = -1e9;
+    }
+}
+
+############################
+# Save only selected field snapshots
+############################
+E_T_x = E_T.x;
+E_T_y = E_T.y;
+E_R_x = E_R.x;
+E_R_y = E_R.y;
+E_near_x = E_near.x;
+E_near_y = E_near.y;
+E_near_z = E_near.z;
+
+E_T_Ex_peaks = matrix(length(E_T_x),length(E_T_y),peak_count);
+E_T_Ey_peaks = matrix(length(E_T_x),length(E_T_y),peak_count);
+E_T_Ez_peaks = matrix(length(E_T_x),length(E_T_y),peak_count);
+
+E_R_Ex_peaks = matrix(length(E_R_x),length(E_R_y),peak_count);
+E_R_Ey_peaks = matrix(length(E_R_x),length(E_R_y),peak_count);
+E_R_Ez_peaks = matrix(length(E_R_x),length(E_R_y),peak_count);
+
+ExNear = pinch(E_near.Ex);
+EyNear = pinch(E_near.Ey);
+EzNear = pinch(E_near.Ez);
+HxNear = pinch(H_near.Hx);
+HyNear = pinch(H_near.Hy);
+HzNear = pinch(H_near.Hz);
+
+E_near_Ex_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+E_near_Ey_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+E_near_Ez_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+H_near_Hx_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+H_near_Hy_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+H_near_Hz_peaks = matrix(length(E_near_x),length(E_near_y),length(E_near_z),peak_count);
+
+for (p=1:peak_count) {
+    fi = peak_indices(p);
+
+    E_T_Ex_peaks(1:length(E_T_x),1:length(E_T_y),p) = pinch(ExT,3,fi);
+    E_T_Ey_peaks(1:length(E_T_x),1:length(E_T_y),p) = pinch(EyT,3,fi);
+    E_T_Ez_peaks(1:length(E_T_x),1:length(E_T_y),p) = pinch(EzT,3,fi);
+
+    E_R_Ex_peaks(1:length(E_R_x),1:length(E_R_y),p) = pinch(ExR,3,fi);
+    E_R_Ey_peaks(1:length(E_R_x),1:length(E_R_y),p) = pinch(EyR,3,fi);
+    E_R_Ez_peaks(1:length(E_R_x),1:length(E_R_y),p) = pinch(EzR,3,fi);
+
+    E_near_Ex_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(ExNear,4,fi);
+    E_near_Ey_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(EyNear,4,fi);
+    E_near_Ez_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(EzNear,4,fi);
+    H_near_Hx_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(HxNear,4,fi);
+    H_near_Hy_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(HyNear,4,fi);
+    H_near_Hz_peaks(1:length(E_near_x),1:length(E_near_y),1:length(E_near_z),p) = pinch(HzNear,4,fi);
+}
+
+matlabsave("rect_sin_unit_cell_results_peak_fields",
+    shape_type,
+    material_pillar,
+    material_substrate,
+    boundary_x,
+    boundary_y,
+    boundary_z,
+    period,
+    pillar_height,
+    rect_lx,
+    rect_ly,
+    theta_deg,
+    pol_angle_deg,
+    wavelength,
+    R_raw,
+    T_raw,
+    R_spectrum,
+    T_spectrum,
+    phase_R,
+    phase_T,
+    peak_count,
+    peak_indices,
+    peak_wavelength,
+    peak_T,
+    peak_R,
+    E_T_x,
+    E_T_y,
+    E_R_x,
+    E_R_y,
+    E_near_x,
+    E_near_y,
+    E_near_z,
+    E_T_Ex_peaks,
+    E_T_Ey_peaks,
+    E_T_Ez_peaks,
+    E_R_Ex_peaks,
+    E_R_Ey_peaks,
+    E_R_Ez_peaks,
+    E_near_Ex_peaks,
+    E_near_Ey_peaks,
+    E_near_Ez_peaks,
+    H_near_Hx_peaks,
+    H_near_Hy_peaks,
+    H_near_Hz_peaks);
+
+?("Exported rect_sin_unit_cell_results_peak_fields.mat");
+?("Peak field snapshots saved at wavelengths:");
+for (p=1:peak_count) {
+    ?("  "+num2str(peak_wavelength(p)/nm)+" nm, T="+num2str(peak_T(p))+", R="+num2str(peak_R(p)));
+}

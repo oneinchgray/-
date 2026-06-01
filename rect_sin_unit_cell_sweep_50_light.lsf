@@ -1,0 +1,168 @@
+# 50-point rectangular unit-cell geometry sweep.
+#
+# Run this script in Lumerical FDTD.
+# It loads rect_sin_unit_cell.fsp, sweeps rectangle lx/ly, runs FDTD, and
+# saves compact spectra/phase results without full field datasets.
+
+clear;
+load("E:/Srtp-2026/FDTD_simulation/pythonProject/fdtd_pinn_examples/rect_sin_unit_cell/rect_sin_unit_cell.fsp");
+
+nm = 1e-9;
+lambda_points = 101;
+pol_angle_deg = 0;
+pol = pol_angle_deg*pi/180;
+
+shape_type = "rectangle";
+material_pillar = "Si3N4 (Silicon Nitride) - Luke";
+material_substrate = "SiO2 (Glass) - Palik";
+period = 300*nm;
+pillar_height = 800*nm;
+
+############################
+# Build 50 geometry points
+############################
+n_struct = 50;
+lx_nm = matrix(n_struct);
+ly_nm = matrix(n_struct);
+scan_type = matrix(n_struct); # 1 = proportional scaling, 2 = independent lx/ly variation
+scale_s = matrix(n_struct);
+
+# 35 proportional scaling points:
+# lx = 120*s, ly = 200*s, s = 0.50:0.02:1.18
+for (i=1:35) {
+    s = 0.50 + (i-1)*0.02;
+    lx_nm(i) = 120*s;
+    ly_nm(i) = 200*s;
+    scale_s(i) = s;
+    scan_type(i) = 1;
+}
+
+# 15 independent variation points.
+idx = 35;
+
+idx = idx + 1; lx_nm(idx) = 60;  ly_nm(idx) = 200; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 80;  ly_nm(idx) = 200; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 100; ly_nm(idx) = 200; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 140; ly_nm(idx) = 200; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 160; ly_nm(idx) = 200; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 180; ly_nm(idx) = 200; scan_type(idx) = 2;
+
+idx = idx + 1; lx_nm(idx) = 120; ly_nm(idx) = 80;  scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 120; ly_nm(idx) = 120; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 120; ly_nm(idx) = 160; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 120; ly_nm(idx) = 220; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 120; ly_nm(idx) = 240; scan_type(idx) = 2;
+
+idx = idx + 1; lx_nm(idx) = 80;  ly_nm(idx) = 240; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 100; ly_nm(idx) = 240; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 160; ly_nm(idx) = 120; scan_type(idx) = 2;
+idx = idx + 1; lx_nm(idx) = 200; ly_nm(idx) = 120; scan_type(idx) = 2;
+
+############################
+# Result arrays
+############################
+wavelength = matrix(lambda_points);
+T_raw_all = matrix(n_struct,lambda_points);
+R_raw_all = matrix(n_struct,lambda_points);
+T_spectrum_all = matrix(n_struct,lambda_points);
+R_spectrum_all = matrix(n_struct,lambda_points);
+energy_check_all = matrix(n_struct,lambda_points);
+phase_T_all = matrix(n_struct,lambda_points);
+phase_R_all = matrix(n_struct,lambda_points);
+peak_T = matrix(n_struct);
+peak_T_wavelength = matrix(n_struct);
+last_completed = 0;
+
+############################
+# Speed and storage settings
+############################
+switchtolayout;
+setglobalmonitor("frequency points",lambda_points);
+setglobalmonitor("use wavelength spacing",1);
+
+# The 3D nearfield monitor is not needed for the first geometry scan.
+# This keeps the sweep result compact and reduces monitor overhead.
+setnamed("nearfield_3d","enabled",0);
+
+############################
+# Sweep loop
+############################
+for (i=1:n_struct) {
+    switchtolayout;
+    setnamed("pillar_rect","x span",lx_nm(i)*nm);
+    setnamed("pillar_rect","y span",ly_nm(i)*nm);
+
+    ?("Running point "+num2str(i)+" / "+num2str(n_struct)+": lx="+num2str(lx_nm(i))+" nm, ly="+num2str(ly_nm(i))+" nm");
+    run;
+
+    T_raw = transmission("T");
+    R_raw = transmission("R");
+    T_spectrum = -T_raw;
+    R_spectrum = 1 + R_raw;
+
+    E_T = getresult("field_xy_transmission","E");
+    E_R = getresult("R","E");
+    if (i == 1) {
+        wavelength = c/E_T.f;
+    }
+
+    ixT = find(E_T.x,0);
+    iyT = find(E_T.y,0);
+    ExT = pinch(E_T.Ex);
+    EyT = pinch(E_T.Ey);
+    Epol_T = cos(pol)*pinch(ExT,1,ixT) + sin(pol)*pinch(EyT,1,ixT);
+    Epol_T = pinch(Epol_T,1,iyT);
+    phase_T = angle(Epol_T);
+
+    ixR = find(E_R.x,0);
+    iyR = find(E_R.y,0);
+    ExR = pinch(E_R.Ex);
+    EyR = pinch(E_R.Ey);
+    Epol_R = cos(pol)*pinch(ExR,1,ixR) + sin(pol)*pinch(EyR,1,ixR);
+    Epol_R = pinch(Epol_R,1,iyR);
+    phase_R = angle(Epol_R);
+
+    imax = find(T_spectrum,max(T_spectrum));
+    imax = imax(1);
+    peak_T(i) = T_spectrum(imax);
+    peak_T_wavelength(i) = wavelength(imax);
+
+    for (j=1:lambda_points) {
+        T_raw_all(i,j) = T_raw(j);
+        R_raw_all(i,j) = R_raw(j);
+        T_spectrum_all(i,j) = T_spectrum(j);
+        R_spectrum_all(i,j) = R_spectrum(j);
+        energy_check_all(i,j) = T_spectrum(j) + R_spectrum(j);
+        phase_T_all(i,j) = phase_T(j);
+        phase_R_all(i,j) = phase_R(j);
+    }
+
+    last_completed = i;
+
+    # Save progress after every point so partial results survive interruption.
+    matlabsave("rect_sin_unit_cell_sweep_50_light",
+        shape_type,
+        material_pillar,
+        material_substrate,
+        period,
+        pillar_height,
+        n_struct,
+        last_completed,
+        lx_nm,
+        ly_nm,
+        scan_type,
+        scale_s,
+        wavelength,
+        T_raw_all,
+        R_raw_all,
+        T_spectrum_all,
+        R_spectrum_all,
+        energy_check_all,
+        phase_T_all,
+        phase_R_all,
+        peak_T,
+        peak_T_wavelength);
+}
+
+?("Finished 50-point sweep.");
+?("Saved rect_sin_unit_cell_sweep_50_light.mat");

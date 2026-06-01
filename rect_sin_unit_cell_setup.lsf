@@ -1,0 +1,175 @@
+# Rectangular Si3N4 metasurface unit cell sample for PINN database generation.
+# Run this script in Lumerical FDTD. It creates and saves rect_sin_unit_cell.fsp.
+
+clear;
+newproject;
+switchtolayout;
+
+############################
+# Parameters
+############################
+nm = 1e-9;
+um = 1e-6;
+
+period = 300*nm;
+pillar_height = 800*nm;
+rect_lx = 120*nm;
+rect_ly = 200*nm;
+theta_deg = 0;
+
+air_above = 1200*nm;
+substrate_thickness_in_fdtd = 500*nm;
+substrate_extension_below_fdtd = 300*nm; # substrate extends through the lower PML
+
+lambda_start = 400*nm;
+lambda_stop = 700*nm;
+lambda_points = 101;
+
+pol_angle_deg = 0; # linear polarization angle. 0 deg means Ex.
+
+# Use dispersive material database entries for formal simulations.
+mat_pillar = "Si3N4 (Silicon Nitride) - Luke";
+mat_substrate = "SiO2 (Glass) - Palik";
+
+z_fdtd_min = -substrate_thickness_in_fdtd; # lower FDTD boundary is inside SiO2
+z_sub_min = z_fdtd_min - substrate_extension_below_fdtd;
+z_sub_max = 0;
+z_pillar_min = 0;
+z_pillar_max = pillar_height;
+z_fdtd_max = pillar_height + air_above;
+z_source = pillar_height + 750*nm;
+z_reflect = pillar_height + 400*nm; # >300 nm above the Si3N4 top
+z_trans = -300*nm;
+z_near_min = -150*nm;
+z_near_max = pillar_height + 150*nm;
+
+############################
+# FDTD region
+############################
+addfdtd;
+set("dimension","3D");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z min",z_fdtd_min);
+set("z max",z_fdtd_max);
+set("x min bc","Periodic");
+set("x max bc","Periodic");
+set("y min bc","Periodic");
+set("y max bc","Periodic");
+set("z min bc","PML");
+set("z max bc","PML");
+set("mesh accuracy",3);
+set("simulation time",2000e-15);
+
+############################
+# Geometry
+############################
+addrect;
+set("name","substrate");
+set("material",mat_substrate);
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z min",z_sub_min);
+set("z max",z_sub_max);
+
+addrect;
+set("name","pillar_rect");
+set("material",mat_pillar);
+set("x",0);
+set("y",0);
+set("x span",rect_lx);
+set("y span",rect_ly);
+set("z min",z_pillar_min);
+set("z max",z_pillar_max);
+set("first axis","z");
+set("rotation 1",theta_deg);
+
+############################
+# Source
+############################
+addplane;
+set("name","source_linear");
+set("injection axis","z");
+set("direction","Backward");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z",z_source);
+set("wavelength start",lambda_start);
+set("wavelength stop",lambda_stop);
+set("polarization angle",pol_angle_deg);
+
+############################
+# Monitors
+############################
+setglobalmonitor("frequency points",lambda_points);
+setglobalmonitor("use wavelength spacing",1);
+
+addpower;
+set("name","R");
+set("monitor type","2D Z-normal");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z",z_reflect);
+
+addpower;
+set("name","T");
+set("monitor type","2D Z-normal");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z",z_trans);
+
+addprofile;
+set("name","field_xy_transmission");
+set("monitor type","2D Z-normal");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z",z_trans);
+
+addprofile;
+set("name","nearfield_3d");
+set("monitor type","3D");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z min",z_near_min);
+set("z max",z_near_max);
+
+############################
+# Mesh override around pillar
+############################
+addmesh;
+set("name","mesh_pillar");
+set("x",0);
+set("y",0);
+set("x span",period);
+set("y span",period);
+set("z min",z_pillar_min - 50*nm);
+set("z max",z_pillar_max + 50*nm);
+set("dx",10*nm);
+set("dy",10*nm);
+set("dz",10*nm);
+
+############################
+# Save project
+############################
+save("rect_sin_unit_cell.fsp");
+
+?("Created rect_sin_unit_cell.fsp");
+?("Geometry: Si3N4 rectangle on SiO2, period=300 nm, height=800 nm");
+?("Boundary: x/y periodic, z PML");
+?("Source: linear plane wave, 400-700 nm, 101 wavelength points");
+?("Lower FDTD boundary is inside SiO2: FDTD z_min = "+num2str(z_fdtd_min/nm)+" nm, substrate bottom = "+num2str(z_sub_min/nm)+" nm");
+?("Reflection monitor distance above pillar top = "+num2str((z_reflect-z_pillar_max)/nm)+" nm");
